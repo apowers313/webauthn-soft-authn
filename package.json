@@ -1,0 +1,22 @@
+{
+  "name": "webauthn-soft-authn",
+  "version": "0.0.1",
+  "description": "A W3C WebAuthn / FIDO 2.0 Soft Authenticator",
+  "main": "soft-authn.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "keywords": [
+    "webauth",
+    "webauthn",
+    "fido2",
+    "fido",
+    "authn",
+    "authenticator"
+  ],
+  "author": "Adam Powers",
+  "license": "UNLICENSED"
+}
