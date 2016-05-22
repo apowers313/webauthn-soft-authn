@@ -1,7 +1,6 @@
 // IIFE for clean namespace
 (function() {
 
-
     if (window.webauthn === undefined) {
         console.log("WebAuthn API not found, can't load authenticator.");
         return;
@@ -21,75 +20,119 @@
         // -- crypto params
         // -- authn type (PIN, pop-up, none, etc.)
         // -- attestation type
-        this.name = "bob";
-        console.log ("Const Name:", this.name);
         this.preferredCrypto = "RSASSA-PKCS1-v1_5";
+        this.cryptoBits = 2048;
+        this.dbName = "scoped-cred-store";
+        this.dbTableName = "creds";
+        this.debug = 1;
+        this.confirmType = "ok"; // TODO: shouldn't be on the object
+
+        // TODO: debug should be private and static to strip out some of these options in minified code?
+        if (this.debug) {
+            console.log ("IN DEBUG MODE");
+            this.confirmType = "none";
+            console.log("Deleting db:", this.dbName);
+            // _dbDelete.call(this);
+            f = _dbDelete.bind(this);
+            f();
+        }
 
         // call superclass constructor
         webauthn.fidoAuthenticator.call(this, opt);
-        // override base methods
-        // this.authenticatorMakeCredential = authenticatorMakeCredential;
-        // this.authenticatorGetAssertion = authenticatorGetAssertion;
-        // this.authenticatorCancel = authenticatorCancel;
 
         return this;
     }
 
+    // private variable for credential database
+    var credDb = null;
+
+    function _dbDelete() {
+        if (this.dbName === undefined) {
+            throw new Error ("Trying to delete undefined database");
+        }
+
+        var deleteRequest = window.indexedDB.deleteDatabase(this.dbName);
+
+        deleteRequest.onerror = function(e) {
+            console.log("Error deleting database");
+        };
+
+        deleteRequest.onsuccess = function(e) {
+            console.log("Database successfully deleted:", this.dbName);
+        }.bind(this);
+    }
+
     function _dbInit() {
+        if (credDb) {
+            return Promise.resolve(credDb);
+        }
+
         return new Promise(function(resolve, reject) {
             // create IndexedDatabase for storing Cred IDs / RPIDs?
-            console.log("creating database");
-            var db;
-            var request = indexedDB.open("scoped-cred-store", 2);
-            request.onupgradeneeded = function() {
-                console.log("upgrading database");
-                var db = request.result;
-                // var store = db.createObjectStore("creds", {
-                //     keyPath: "rpId"
-                // });
-                // var idIdx = store.createIndex("by_id", "id", {
-                //     unique: true
-                // });
-                // var tx = db.transaction("creds", "readonly");
-                var store = request.transaction.objectStore("creds");
+            var request = indexedDB.open(this.dbName);
 
-                console.log("putting ID 7");
-                store.put({
-                    rpId: "localhost",
-                    id: "7",
-                    counter: 0
+            request.onupgradeneeded = function() {
+                console.log("Creating database...");
+                db = request.result;
+                var store = db.createObjectStore("creds", {
+                    keyPath: "rpId"
+                });
+                var idIdx = store.createIndex("by_id", "id", {
+                    unique: true
                 });
             };
 
             request.onsuccess = function() {
-                console.log("success!");
-                db = request.result;
-                resolve(db);
+                console.log("Database created!");
+                credDb = request.result;
+                return resolve(credDb);
             };
 
-            // TODO: onerror
-        });
+            request.onerror = function() {
+                return reject(new Error ("Couldn't initialize DB"));
+            };
+        }.bind(this));
     }
 
     function _dbCredLookup() {
         return new Promise(function(resolve, reject) {
-            var db = this.db;
+            var db = credDb;
             var tx = db.transaction("creds", "readonly");
 
             var store = tx.objectStore("creds");
             var index = store.index("by_id");
-            var request2 = index.get("7");
-            request2.onsuccess = function() {
-                var matching = request2.result;
+            var request = index.get("7");
+            request.onsuccess = function() {
+                var matching = request.result;
                 if (matching !== undefined) {
                     console.log("Found match:", matching);
                 } else {
                     console.log("No match found.");
                 }
-                // db.close();
-
             };
         });
+    }
+
+    function _dbCredCreate(rpId, credId) {
+        return new Promise(function(resolve, reject) {
+            var db = credDb;
+            var tx = db.transaction(this.dbTableName, "readwrite");
+            var store = tx.objectStore(this.dbTableName);
+
+            store.put ({
+                rpId: rpId,
+                id: credId,
+                counter: 0
+            });
+
+            tx.oncomplete = function() {
+                return resolve(true);
+            };
+
+            tx.onerror = function() {
+                return reject (new Error ("Couldn't create credential"));
+            };
+        }.bind(this));
     }
 
     function _generateCredId() {
@@ -100,49 +143,43 @@
         return null;
     }
 
-    softAuthn.prototype.authenticatorMakeCredential = function (rpId, account, clientDataHash, cryptoParameters, blacklist, extensions) {
+    function _userConfirmation(rpId, rpDisplayName, displayName) {
         return new Promise(function(resolve, reject) {
-            console.log("!!! MAKE CREDENTIAL");
-            // TODO: verify arguments
-            // prompt for user permission
-            // TODO: process extension data
-            // create assymetric key pair
-            console.log ("Name:", this.name);
-            console.log ("Preferred Crypto:", this.preferredCrypto);
-            window.crypto.subtle.generateKey({
-                        // TODO: should be options for crypto, bits, hash, etc.
-                        name: this.preferredCrypto,
-                        modulusLength: 2048, //can be 1024, 2048, or 4096
-                        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-                        hash: {
-                            name: "SHA-256"
-                        }, //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
-                    },
-                    false, //whether the key is extractable (i.e. can be used in exportKey)
-                    ["sign", "verify"] //can be any combination of "sign" and "verify"
-                )
-                .then(function(key) {
-                    //returns a keypair object
-                    console.log(key);
-                    console.log(key.publicKey);
-                    console.log(key.privateKey);
-                })
-                .catch(function(err) {
-                    console.error(err);
-                });
+            switch (this.confirmType) {
+                case "ok":
+                    var result = confirm("Would you like to create an new account?\n" +
+                        "Service: " + rpDisplayName + "\n" +
+                        "Website: " + rpId + "\n" +
+                        "Account: " + displayName + "\n"
+                    );
+                    if (result === true) {
+                        return resolve(true);
+                    } else {
+                        return reject(new Error("User declined confirmation"));
+                    }
+                    break;
+                case "none":
+                    return resolve(true);
+                default:
+                    return reject(new Error("Unknown User Confirmation Type:", this.confirmType));
+            }
 
-            // export public key
-            window.crypto.subtle.exportKey(
-                    "jwk", //can be "jwk" (public or private), "spki" (public only), or "pkcs8" (private only)
-                    publicKey //can be a publicKey or privateKey, as long as extractable was true
-                )
-                .then(function(keydata) {
-                    //returns the exported key data
-                    console.log(keydata);
-                })
-                .catch(function(err) {
-                    console.error(err);
-                });
+        }.bind(this));
+    }
+
+    softAuthn.prototype.authenticatorMakeCredential = function(rpId, account, clientDataHash, cryptoParameters, blacklist, extensions) {
+        return new Promise(function(resolve, reject) { // TODO: just reurn the inner promise
+            // console.log("!!! MAKE CREDENTIAL");
+            // console.log("RP ID:", rpId);
+            // console.log("account", account);
+            // console.log("clientDataHash", clientDataHash);
+            // console.log("cryptoParams:", cryptoParameters);
+            // console.log("blacklist:", blacklist);
+            // console.log("extensions:", extensions);
+
+            // TODO: verify arguments
+
+            // TODO: process extension data
 
             // create new attestation
             var clientDataHash = "12"; // TODO
@@ -154,16 +191,55 @@
                 id: _generateCredId()
             };
 
-            // store credential ID and RP ID for future use
-            // this.db.save(cred.id, rpId);
+            var publicKey;
 
-            // resolve with credential, publicKey, rawAttestation = { attestation.type, attestation.statement, attestation.clientData }
+            // prompt for user permission
+            _userConfirmation.call(this, rpId, account.rpDisplayName, account.displayName)
+                .then(function(res) { // create assymetric key pair and export public key
+                    return window.crypto.subtle.generateKey({
+                            // TODO: should be options for crypto, bits, hash, etc.
+                            name: this.preferredCrypto,
+                            modulusLength: this.cryptoBits, //can be 1024, 2048, or 4096
+                            publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                            hash: {
+                                name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
+                            },
+                        },
+                        false, ["sign", "verify"]
+                    );
+                }.bind(this))
+                .then(function(key) { // export public key                    
+                    return window.crypto.subtle.exportKey("jwk", key.publicKey);
+                })
+                .then(function(jwkPk) { // dbInit
+                    console.log("JWK Pk:", jwkPk);
+                    publicKey = jwkPk;
+
+                    return _dbInit.call(this);
+                }.bind(this))
+                .then(function(db) { // store credential ID and RP ID for future use
+                    return _dbCredCreate.call(this, rpId, cred.id);
+                }.bind(this))
+                // TODO: _dbClose()?
+                .then(function(x) { // resolve with credential, publicKey, rawAttestation = { attestation.type, attestation.statement, attestation.clientData }
+                    return resolve({
+                        credential: cred,
+                        publicKey: publicKey,
+                        attestation: attestation
+                    });
+                })
+                .catch(function(err) {
+                    console.error(err);
+                    return reject (err);
+                });
+
         }.bind(this));
     };
 
     softAuthn.prototype.authenticatorGetAssertion = function() {
         return Promise.reject(new Error("Not Implemented"));
         // TODO: verify arguments
+
         // lookup credentials by RP ID
         // filter found credentials by whitelist
         // prompt for user permission

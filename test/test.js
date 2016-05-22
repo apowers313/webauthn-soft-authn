@@ -77,7 +77,7 @@ describe("Prerequisites (if these fail, so will everything else)", function() {
 });
 
 describe("Basic tests", function() {
-	it("does makeCredential", function(done) {
+	it("does makeCredential", function() {
 		var webAuthnAPI = window.webauthn;
 
 		// auth.authenticatorMakeCredential = authenticatorMakeCredential;
@@ -89,13 +89,11 @@ describe("Basic tests", function() {
 			.then(function(ret) {
 				// sinon.assert.calledOnce(spy);
 				// assert.deepEqual(ret, ["beer"], "authenticatorMakeCredential should give me ['beer']");
-				done();
+				assert.isDefined (ret.credential, "Should return credential");
+				assert.isDefined (ret.attestation, "Should return attestation");
+				assert.isDefined (ret.publicKey, "Should return publicKey");
 			});
-			// .catch(function(err) {
-			// 	console.log("Error:", err);
-			// 	assert(false, "Should not reject Promise");
-			// 	done();
-			// });
 	});
+	
 	it("does getAssertion");
 });
