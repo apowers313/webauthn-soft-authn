@@ -70,10 +70,10 @@ describe("Prerequisites (if these fail, so will everything else)", function() {
 		assert.isDefined(window.webauthn.listAuthenticators, "addAuthenticator should exist on WebAuthn object");
 		assert.isFunction(window.webauthn.listAuthenticators, "addAuthenticator should be a function");
 		var authnList = window.webauthn.listAuthenticators();
-		console.log ("Authn List:", authnList);
-		assert (authnList.length > 0);
+		console.log("Authn List:", authnList);
+		assert(authnList.length > 0);
 	});
-	
+
 });
 
 describe("Basic tests", function() {
@@ -89,11 +89,37 @@ describe("Basic tests", function() {
 			.then(function(ret) {
 				// sinon.assert.calledOnce(spy);
 				// assert.deepEqual(ret, ["beer"], "authenticatorMakeCredential should give me ['beer']");
-				assert.isDefined (ret.credential, "Should return credential");
-				assert.isDefined (ret.attestation, "Should return attestation");
-				assert.isDefined (ret.publicKey, "Should return publicKey");
+				assert.isDefined(ret.credential, "Should return credential");
+				assert.isDefined(ret.attestation, "Should return attestation");
+				assert.isDefined(ret.publicKey, "Should return publicKey");
 			});
 	});
-	
-	it("does getAssertion");
+
+	it.only("does getAssertion", function() {
+		var webAuthnAPI = window.webauthn;
+
+		// auth.authenticatorMakeCredential = authenticatorMakeCredential;
+		// var spy = sinon.spy(auth, "authenticatorMakeCredential");
+		// webAuthnAPI.addAuthenticator(auth);
+
+		return webAuthnAPI.makeCredential(userAccountInformation, cryptoParams, challenge,
+				timeoutSeconds, blacklist, extensions)
+			.then(function(ret) {
+				// sinon.assert.calledOnce(spy);
+				// assert.deepEqual(ret, ["beer"], "authenticatorMakeCredential should give me ['beer']");
+				assert.isDefined(ret.credential, "Should return credential");
+				assert.isDefined(ret.attestation, "Should return attestation");
+				assert.isDefined(ret.publicKey, "Should return publicKey");
+				return webAuthnAPI.getAssertion();
+			})
+			.then(function() {
+				// done();
+				// assert (false, "Should not pass");
+				return true;
+			})
+			.catch(function(ret) {
+				assert (false, "Should not fail");
+				// done();
+			});
+	});
 });
