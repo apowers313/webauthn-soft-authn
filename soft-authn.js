@@ -33,7 +33,7 @@
         this.cryptoBits = 2048;
         this.dbName = "scoped-cred-store";
         this.dbTableName = "creds";
-        this.debug = 1;
+        this.debug = 0;
         this.confirmType = "ok"; // TODO: shouldn't be on the object
 
         // TODO: debug should be private and static to strip out some of these options in minified code?
@@ -76,6 +76,11 @@
             return Promise.resolve(credDb);
         }
 
+        if (this.dbName === undefined) {
+            console.log ("dbName not found:", this.dbName);
+            throw new Error("Trying to init database, but no name found");
+        }
+
         return new Promise(function(resolve, reject) {
             // create IndexedDatabase for storing Cred IDs / RPIDs?
             var request = indexedDB.open(this.dbName);
@@ -113,7 +118,8 @@
             var tx = db.transaction("creds", "readonly");
 
             var store = tx.objectStore("creds");
-            var index = store.index("by_rpId");
+            var index = store.index("by_rpId", "rpId", {unique: false});
+            console.log ("rpId index unique:", index.unique);
             var request = index.get(rpId);
             request.onsuccess = function() {
                 var matching = request.result;
@@ -150,8 +156,8 @@
                 return resolve(true);
             };
 
-            tx.onerror = function() {
-                return reject(new Error("Couldn't create credential"));
+            tx.onerror = function(e) {
+                return reject(new Error("Couldn't create credential: " + tx.error));
             };
         }.bind(this));
     }
@@ -172,7 +178,6 @@
 
     function _userConfirmation(rpId, rpDisplayName, displayName) {
         return new Promise(function(resolve, reject) {
-            console.log("Name:", this.name);
             console.log("Confirmation Type:", this.confirmType);
             switch (this.confirmType) {
                 case "ok":
@@ -277,7 +282,7 @@
             // lookup credentials by RP ID
             console.log("RP ID:", rpId);
             var selectedCred, authenticatorData;
-            return _dbInit()
+            return _dbInit.call(this)
                 .then(function(db) {
                     return _dbCredLookup(rpId);
                 })
