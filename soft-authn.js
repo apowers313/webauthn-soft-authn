@@ -33,7 +33,7 @@
         this.cryptoBits = 2048;
         this.dbName = "scoped-cred-store";
         this.dbTableName = "creds";
-        this.debug = 1;
+        this.debug = 0;
         this.confirmType = "ok"; // TODO: shouldn't be on the object
 
         // TODO: debug should be private and static to strip out some of these options in minified code?
@@ -52,9 +52,6 @@
         return this;
     }
 
-    // private variable for credential database
-    var credDb = null;
-
     function _dbDelete() {
         if (this.dbName === undefined) {
             throw new Error("Trying to delete undefined database");
@@ -71,9 +68,12 @@
         }.bind(this);
     }
 
+    // private variable for credential database
+    var _credDb = null;
+
     function _dbInit() {
-        if (credDb) {
-            return Promise.resolve(credDb);
+        if (_credDb) {
+            return Promise.resolve(_credDb);
         }
 
         return new Promise(function(resolve, reject) {
@@ -87,14 +87,14 @@
                     keyPath: "id"
                 });
                 var idIdx = store.createIndex("by_rpId", "rpId", {
-                    unique: true
+                    unique: false
                 });
             };
 
             request.onsuccess = function() {
                 console.log("Database created!");
-                credDb = request.result;
-                return resolve(credDb);
+                _credDb = request.result;
+                return resolve(_credDb);
             };
 
             request.onerror = function() {
@@ -109,7 +109,7 @@
     //       are multiple ports or subdomains that the credentials are supposed to work with
     function _dbCredLookup(rpId) {
         return new Promise(function(resolve, reject) {
-            var db = credDb;
+            var db = _credDb;
             var tx = db.transaction("creds", "readonly");
 
             var store = tx.objectStore("creds");
@@ -128,15 +128,20 @@
         });
     }
 
-    function _dbCredCreate(rpId, credId, keyPair) {
+    function _dbCredCreate(account, rpId, credId, keyPair) {
         return new Promise(function(resolve, reject) {
-            var db = credDb;
+            var db = _credDb;
             var tx = db.transaction(this.dbTableName, "readwrite");
             var store = tx.objectStore(this.dbTableName);
 
             // TODO: create credential ID here
 
             var newCred = {
+                rpName: account.rpDisplayName,
+                userName: account.displayName,
+                accountName: account.name,
+                accountId: account.id,
+                imageURL: account.imageURL,
                 rpId: rpId,
                 id: credId,
                 keyPair: keyPair,
@@ -150,7 +155,9 @@
                 return resolve(true);
             };
 
-            tx.onerror = function() {
+            tx.onerror = function(e) {
+                console.log ("ERROR");
+                console.log (e);
                 return reject(new Error("Couldn't create credential"));
             };
         }.bind(this));
@@ -170,13 +177,12 @@
         return null;
     }
 
-    function _userConfirmation(rpId, rpDisplayName, displayName) {
+    function _userConfirmation(msg, rpId, rpDisplayName, displayName) {
         return new Promise(function(resolve, reject) {
-            console.log("Name:", this.name);
             console.log("Confirmation Type:", this.confirmType);
             switch (this.confirmType) {
                 case "ok":
-                    var result = confirm("Would you like to create an new account?\n" +
+                    var result = confirm(msg + "\n" +
                         "Service: " + rpDisplayName + "\n" +
                         "Website: " + rpId + "\n" +
                         "Account: " + displayName + "\n"
@@ -196,6 +202,9 @@
         }.bind(this));
     }
 
+    // TODO: credentialType arg (ScopedCred)
+    // TODO: list of Credentials arg, that are already known so that new creds. aren't needlessly created
+    // TODO: attestationChallenge arg
     softAuthn.prototype.authenticatorMakeCredential = function(rpId, account, clientDataHash, cryptoParameters, blacklist, extensions) {
         return new Promise(function(resolve, reject) { // TODO: just reurn the inner promise
             // console.log("!!! MAKE CREDENTIAL");
@@ -223,7 +232,7 @@
             var keyPair, publicKey;
 
             // prompt for user permission
-            _userConfirmation.call(this, rpId, account.rpDisplayName, account.displayName)
+            _userConfirmation.call(this, "Would you like to create an new account?", rpId, account.rpDisplayName, account.displayName)
                 .then(function(confirm) { // create assymetric key pair and export public key
                     return window.crypto.subtle.generateKey({
                             // TODO: should be options for crypto, bits, hash, etc.
@@ -248,7 +257,7 @@
                     return _dbInit.call(this);
                 }.bind(this))
                 .then(function(db) { // store credential ID and RP ID for future use
-                    return _dbCredCreate.call(this, rpId, cred.id, keyPair);
+                    return _dbCredCreate.call(this, account, rpId, cred.id, keyPair);
                 }.bind(this))
                 // TODO: _dbClose()?
                 .then(function() { // resolve with credential, publicKey, rawAttestation = { attestation.type, attestation.statement, attestation.clientData }
@@ -277,7 +286,7 @@
             // lookup credentials by RP ID
             console.log("RP ID:", rpId);
             var selectedCred, authenticatorData;
-            return _dbInit()
+            return _dbInit.call(this)
                 .then(function(db) {
                     return _dbCredLookup(rpId);
                 })
@@ -286,7 +295,7 @@
                     // TODO: _userConfirmation should allow user to pick from an array of accounts
                     selectedCred = cred;
                     console.log("Using credential:", selectedCred);
-                    return _userConfirmation.call(this, rpId, "SERVICE MISSING", "USER MISSING");
+                    return _userConfirmation.call(this, "Would you like to login to this account?", rpId, cred.rpName || "SERVICE MISSING", cred.userName || "USER MISSING");
                 }.bind(this))
                 .then(function(confirm) { // create assertion
                     console.log("Creating assertion");
