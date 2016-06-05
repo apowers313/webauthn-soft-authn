@@ -76,6 +76,11 @@
             return Promise.resolve(_credDb);
         }
 
+        if (this.dbName === undefined) {
+            console.log ("dbName not found:", this.dbName);
+            throw new Error("Trying to init database, but no name found");
+        }
+
         return new Promise(function(resolve, reject) {
             // create IndexedDatabase for storing Cred IDs / RPIDs?
             var request = indexedDB.open(this.dbName);
@@ -113,7 +118,8 @@
             var tx = db.transaction("creds", "readonly");
 
             var store = tx.objectStore("creds");
-            var index = store.index("by_rpId");
+            var index = store.index("by_rpId", "rpId", {unique: false});
+            console.log ("rpId index unique:", index.unique);
             var request = index.get(rpId);
             request.onsuccess = function() {
                 var matching = request.result;
@@ -301,7 +307,7 @@
                     console.log("Creating assertion");
                     var SIG = {
                         TUP_FLAG: 0x01
-                    }
+                    };
                     console.log("Using credential:", selectedCred);
                     var baseSignature = new DataView(new ArrayBuffer(5));
                     // set TUP flag in authenticator data
