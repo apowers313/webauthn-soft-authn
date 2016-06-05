@@ -308,13 +308,13 @@
                     var SIG = {
                         TUP_FLAG: 0x01
                     };
-                    console.log("Using credential:", selectedCred);
                     var baseSignature = new DataView(new ArrayBuffer(5));
                     // set TUP flag in authenticator data
                     baseSignature.setUint8(0, SIG.TUP_FLAG);
-                    // bump counter, store counter
+                    // bump counter
                     baseSignature.setUint32(1, selectedCred.counter + 1);
 
+                    // TODO: store counter
                     // TODO: create a single buffer with authenticatorData, clientDataHash and extensions
 
                     authenticatorData = baseSignature;
@@ -344,7 +344,7 @@
                             id: selectedCred.id,
                             type: "ScopedCred" // TODO: need to be more intelligent about this?
                         },
-                        authenticatorData: authenticatorData,
+                        authenticatorData: authenticatorData.buffer,
                         signature: signature
                     };
                     console.log("All done", ret);
