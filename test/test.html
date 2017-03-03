@@ -20,12 +20,14 @@
     mocha.setup("bdd");
     </script>
     <!-- Insert test scripts here -->
-    <script src="../webauthn-polyfill/webauthn-polyfill.js"></script>
+    <script src="webauthn-polyfill/webauthn-polyfill.js"></script>
+    <script src="fido2-helpers/fido2-helpers.js"></script>
+    <script src="polyfill-stub.js"></script>
     <script src="../soft-authn.js"></script>
     <script src="test.js"></script>
     <!-- Run Mocha -->
     <script>
-    mocha.checkLeaks();
+    // mocha.checkLeaks();
     mocha.run();
     </script>
 </body>

@@ -50,71 +50,100 @@
         // TODO: credentialType arg (ScopedCred)
         // TODO: list of Credentials arg, that are already known so that new creds. aren't needlessly created
         // TODO: attestationChallenge arg
-        authenticatorMakeCredential(rpId, account, clientDataHash, cryptoParameters, blacklist, extensions) {
+        authenticatorMakeCredential(rpIdHash, account, clientDataHash, scopedCredentialType, blacklist, extensions) {
             return new Promise((resolve, reject) => { // TODO: just reurn the inner promise
-                // console.log("!!! MAKE CREDENTIAL");
-                // console.log("RP ID:", rpId);
-                // console.log("account", account);
-                // console.log("clientDataHash", clientDataHash);
-                // console.log("cryptoParams:", cryptoParameters);
-                // console.log("blacklist:", blacklist);
-                // console.log("extensions:", extensions);
+                console.log("!!! MAKE CREDENTIAL");
+                console.log("RP ID Hash:", rpIdHash);
+                console.log("account", account);
+                console.log("clientDataHash", clientDataHash);
+                console.log("scopedCredentialType:", scopedCredentialType);
+                console.log("blacklist:", blacklist);
+                console.log("extensions:", extensions);
 
                 // TODO: verify arguments
+                if (!(rpIdHash instanceof ArrayBuffer)) {
+                    throw new TypeError("authenticatorMakeCredential expected rpIdHash to be ArrayBuffer");
+                }
+
+                console.log(account);
+                if (typeof account !== "object" ||
+                    typeof account.rpDisplayName !== "string" ||
+                    typeof account.displayName !== "string" ||
+                    typeof account.id !== "string") {
+                    throw new TypeError("authenticatorMakeCredential expected 'account' to be object containing rpDisplayName, displayName, and id");
+                }
+
+                console.log("clientDataHash", clientDataHash);
+                if (!(clientDataHash instanceof ArrayBuffer)) {
+                    throw new TypeError("authenticatorMakeCredential expected clientDataHash to be ArrayBuffer");
+                }
+
+                if (typeof scopedCredentialType !== "string") {
+                    throw new TypeError("authenticatorMakeCredential expected scopedCredentialType to be string");
+                }
 
                 // TODO: process extension data
 
-                // create new attestation
-                var clientDataHash = "12"; // TODO
-                var attestation = _generateAttestation(clientDataHash);
-
-                // create credential ID and new credential
-                var cred = {
-                    type: this.preferredCrypto,
-                    id: _generateCredId()
-                };
-
-                var keyPair, publicKey;
+                var credObj, webAuthnAttestation;
 
                 // prompt for user permission
-                _userConfirmation.call(this, "Would you like to create an new account?", rpId, account.rpDisplayName, account.displayName)
-                    .then((confirm) => { // create assymetric key pair and export public key
-                        return window.crypto.subtle.generateKey({
-                                // TODO: should be options for crypto, bits, hash, etc.
-                                name: this.preferredCrypto,
-                                modulusLength: this.cryptoBits, //can be 1024, 2048, or 4096
-                                publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-                                hash: {
-                                    name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
-                                },
-                            },
-                            false, ["sign", "verify"]
-                        );
+                return _userConfirmation.call(this, "Would you like to create an new account?", account.rpDisplayName, account.displayName)
+                    .then((confirm) => {
+                        // create a credential
+                        return _createCredential();
                     })
-                    .then((keys) => { // export public key
-                        keyPair = keys;
-                        return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+                    .then((co) => {
+                        // save credential object
+                        credObj = co;
+                        console.log("created credential:", credObj);
+                        // create attestation
+                        return _createPackedAttestation(rpIdHash, clientDataHash, credObj, {
+                            attestation: true
+                        });
                     })
-                    .then((jwkPk) => { // dbInit
-                        console.log("JWK Pk:", jwkPk);
-                        publicKey = jwkPk;
+                    .then((a) => {
+                        // save attestation
+                        webAuthnAttestation = a;
+                        //     // create assymetric key pair and export public key
+                        //     return window.crypto.subtle.generateKey({
+                        //             // TODO: should be options for crypto, bits, hash, etc.
+                        //             name: this.preferredCrypto,
+                        //             modulusLength: this.cryptoBits, //can be 1024, 2048, or 4096
+                        //             publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                        //             hash: {
+                        //                 name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
+                        //             },
+                        //         },
+                        //         false, ["sign", "verify"]
+                        //     );
+                        // })
+                        // .then((keys) => {
+                        //     // export public key
+                        //     keyPair = keys;
+                        //     return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+                        // })
+                        // .then((jwkPk) => {
+                        //     // dbInit
+                        //     console.log("JWK Pk:", jwkPk);
+                        //     publicKey = jwkPk;
 
                         return _dbInit.call(this);
                     })
-                    .then((db) => { // store credential ID and RP ID for future use
-                        return _dbCredCreate.call(this, account, rpId, cred.id, keyPair);
+                    .then(() => {
+                        // store credential ID and RP ID for future use
+                        return _dbCredCreate.call(this, account, rpIdHash, credObj);
                     })
                     // TODO: _dbClose()?
-                    .then(() => { // resolve with credential, publicKey, rawAttestation = { attestation.type, attestation.statement, attestation.clientData }
-                        return resolve({
-                            credential: cred,
-                            publicKey: publicKey,
-                            attestation: attestation
-                        });
-                    })
-                    .catch((err) => {
-                        console.error(err);
-                        return reject(err);
+                    .then(() => {
+                        var ret = {
+                            credential: {
+                                type: "ScopedCred",
+                                id: credObj.id
+                            },
+                            attestation: webAuthnAttestation
+                        };
+                        // resolve with credential, publicKey, rawAttestation = { attestation.type, attestation.statement, attestation.clientData }
+                        return resolve(ret);
                     });
             });
         }
@@ -123,9 +152,21 @@
             return new Promise((resolve, reject) => {
                 console.log("authenticatorGetAssertion");
 
-                // TODO: verify arguments
-                console.log("clientDataHash is:", typeof clientDataHash);
+                // verify arguments
+                if (typeof rpId === "string") {
+                    throw new TypeError("authenticatorGetAssertion expected rpId to be string");
+                }
 
+                if (!(assertionChallenge instanceof ArrayBuffer)) {
+                    throw new TypeError("authenticatorGetAssertion expected assertionChallenge to be ArrayBuffer");
+                }
+                console.log("assertionChallenge", assertionChallenge);
+
+                if (!(clientDataHash instanceof ArrayBuffer)) {
+                    throw new TypeError("authenticatorGetAssertion expected clientDataHash to be ArrayBuffer");
+                }
+
+                // TODO: process whitelist
                 // TODO: process extensions
 
                 // lookup credentials by RP ID
@@ -140,7 +181,7 @@
                         // TODO: _userConfirmation should allow user to pick from an array of accounts
                         selectedCred = cred;
                         console.log("Using credential:", selectedCred);
-                        return _userConfirmation.call(this, "Would you like to login to this account?", rpId, cred.rpName || "SERVICE MISSING", cred.userName || "USER MISSING");
+                        return _userConfirmation.call(this, "Would you like to login to this account?", cred.rpName || "SERVICE MISSING", cred.userName || "USER MISSING");
                     })
                     .then((confirm) => { // create assertion
                         console.log("Creating assertion");
@@ -244,7 +285,7 @@
                 var store = db.createObjectStore("creds", {
                     keyPath: "id"
                 });
-                var idIdx = store.createIndex("by_rpId", "rpId", {
+                var idIdx = store.createIndex("by_rpIdHash", "rpIdHash", {
                     unique: false
                 });
             };
@@ -289,7 +330,7 @@
         });
     }
 
-    function _dbCredCreate(account, rpId, credId, keyPair) {
+    function _dbCredCreate(account, rpIdHash, credObj) {
         return new Promise((resolve, reject) => {
             var db = _credDb;
             var tx = db.transaction(this.dbTableName, "readwrite");
@@ -303,14 +344,17 @@
                 accountName: account.name,
                 accountId: account.id,
                 imageURL: account.imageURL,
-                rpId: rpId,
-                id: credId,
-                keyPair: keyPair,
+                rpIdHash: rpIdHash,
+                id: _buf2hex(credObj.id),
+                idBuf: credObj.id,
+                credCbor: credObj.cbor,
+                credJwk: credObj.jwk,
+                keyPair: credObj.keyPair,
                 counter: 0
             };
+            console.log("New Credential ID is:", _buf2hex(credObj.id));
             console.log("Saving New Credential:", newCred);
             store.put(newCred);
-
 
             tx.oncomplete = function() {
                 return resolve(true);
@@ -338,14 +382,14 @@
         return null;
     }
 
-    function _userConfirmation(msg, rpId, rpDisplayName, displayName) {
+    function _userConfirmation(msg, rpDisplayName, displayName) {
         return new Promise((resolve, reject) => {
             console.log("Confirmation Type:", this.confirmType);
             switch (this.confirmType) {
                 case "ok":
                     var result = confirm(msg + "\n" +
                         "Service: " + rpDisplayName + "\n" +
-                        "Website: " + rpId + "\n" +
+                        // "Website: " + rpId + "\n" +
                         "Account: " + displayName + "\n"
                     );
                     if (result === true) {
@@ -362,305 +406,335 @@
 
         });
     }
+    /**
+     * Creates a random credential ID
+     * @param  {Number} len The length of the credential ID to create (default: 32)
+     * @return {ArrayBuffer}     Credential ID as an ArrayBuffer
+     * @private
+     */
+    function createCredentialId(len) {
+        // TODO: length should be a parameter
 
+        // default length is 32 bytes
+        len = len || 32;
+        var ret = new Uint8Array(len);
+        window.crypto.getRandomValues(ret);
+        return ret.buffer;
+    }
+
+    /**
+     * Converts a credential object to a CBOR representation of the credential
+     * @param  {String} alg     The JWK crypto algorithm for the credential. Currently only "RS256" is supported.
+     * @param  {Object} credObj The credential object to be converted to CBOR
+     * @return {ArrayBuffer}    The CBOR representation of the credential
+     * @private
+     */
+    function credentialToCbor(alg, credObj) {
+        switch (alg) {
+            case "RS256":
+                return CBOR.encode({
+                    alg: alg,
+                    n: new Uint8Array(credObj.n),
+                    e: new Uint8Array(credObj.e)
+                });
+            default:
+                throw new TypeError(`${alg} not supported in credentialToCbor()`);
+        }
+    }
+
+    /**
+     * Creates a key pair and returns them along with all the information needed for a credential
+     * @return {Object} A Promise that resolves to a credential object with n, e, jwk, and keyPair attributes
+     * @private
+     */
+    function _createCredential(opts) {
+        // TODO:
+        // opts
+        //     idLen: length of credential (default: 32)
+        //     cryptoType: type of credential (default: ECDSA)
+        //     crytpoBits: number bits to be used for crypto keys (default: 256)
+        var keyPair;
+        var credId = createCredentialId();
+
+        // generate a credential key pair
+        return window.crypto.subtle.generateKey({
+                // TODO: should be options for crypto, bits, hash, etc.
+                name: "RSASSA-PKCS1-v1_5",
+                modulusLength: 2048, //can be 1024, 2048, or 4096
+                publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                hash: {
+                    name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
+                },
+            },
+            false, ["sign", "verify"]
+        ).then((keys) => { // export public key
+            keyPair = keys;
+            return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+        }).then((jwkPk) => { // grab the right values from the JWK and return them
+            var ret = {
+                n: b64decode(jwkPk.n),
+                e: b64decode(jwkPk.e),
+                jwk: jwkPk,
+                keyPair: keyPair,
+                id: credId,
+                idLen: credId.byteLength,
+            };
+
+            // convert the JWK to CBOR
+            ret.cbor = credentialToCbor(jwkPk.alg, ret);
+            ret.cborLen = ret.cbor.byteLength;
+
+            console.log("cred obj:", ret);
+
+            return ret;
+        });
+    }
+
+    function createAttestationData(credObj, opts) {
+        opts = opts || {};
+        if (typeof credObj !== "object") {
+            throw new TypeError("createAttestationData: expected credObj to be object");
+        }
+
+        // TODO: real AAGUID
+        var myAaguid = [0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0];
+
+        // create a new dataview for the attestation
+        var attestDataBuf = new ArrayBuffer(
+            16 + // AAGUID
+            2 + // Cred ID Len
+            credObj.idLen + // Credential ID
+            credObj.cborLen // Credential in CBOR Format
+        );
+        var attestData = new DataView(attestDataBuf);
+        var offset = 0;
+
+        // append AAGUID
+        for (let i = 0; i < 16; i++) {
+            attestData.setUint8(i, myAaguid[i]);
+        }
+        offset += 16;
+
+        // set credential ID length
+        attestData.setUint16(offset, credObj.idLen);
+        offset += 2;
+
+        // append credential ID
+        var id = new Uint8Array(credObj.id);
+        for (let i = 0; i < credObj.idLen; i++) {
+            attestData.setUint8(i + offset, id[i]);
+        }
+        offset += credObj.idLen;
+
+        // append credential in CBOR format
+        var cbor = new Uint8Array(credObj.cbor);
+        for (let i = 0; i < credObj.cborLen; i++) {
+            attestData.setUint8(i + offset, cbor[i]);
+        }
+
+        return attestDataBuf;
+    }
+
+    function createAuthenticatorData(rpIdHash, credObj, opts) {
+        opts = opts || {};
+        var counter = 1; // TODO: manage counter
+
+        var attData;
+
+        return Promise.resolve(true) // get TUP -- TODO
+            .then((tup) => { // get attestation data, if required
+                if (tup !== true) {
+                    throw new Error("TUP rejected");
+                }
+
+                if (opts.attestation) return createAttestationData(credObj);
+                else return new ArrayBuffer(0);
+            })
+            .then((ad) => { // get extension data, if required
+                attData = ad;
+                if (opts.extensions) throw new Error("extensions not supported in createAuthenticatorData");
+                else return new ArrayBuffer(0);
+            })
+            .then((extData) => { // create the authenticator data
+                var hasAd = (attData.byteLength > 0);
+                var hasEd = (extData.byteLength > 0);
+
+                // create authenticator data
+                var authnrDataBuf = new ArrayBuffer(
+                    32 + // RPID Hash
+                    1 + // Flags
+                    4 + // Signature Counter
+                    attData.byteLength + // attestation data
+                    extData.byteLength // extensions
+                );
+                var authnrData = new DataView(authnrDataBuf);
+                var offset = 0;
+
+                // copy RPID
+                var rpid = new Uint8Array(rpIdHash);
+                for (let i = 0; i < 32; i++) {
+                    authnrData.setUint8(i + offset, rpid[i]);
+                }
+                offset += 32;
+
+                // set flags
+                var flags = 0;
+                flags |= 0x01; // TUP flag
+                if (hasAd) flags |= 0x40; // AT flag
+                if (hasEd) flags |= 0x80; // ED flag
+                authnrData.setUint8(offset, flags);
+                offset++;
+
+                // set counter
+                authnrData.setUint32(offset, counter, false);
+                offset += 4;
+
+                if (hasAd) {
+                    var ad = new Uint8Array(attData);
+                    for (let i = 0; i < attData.byteLength; i++) {
+                        authnrData.setUint8(offset + i, ad[i]);
+                    }
+                    offset += attData.byteLength;
+                }
+
+                return authnrDataBuf;
+            });
+    }
+
+    function createSignature(keyPair, authnrData, clientDataHash) {
+        console.log("Signing");
+        printHex("authnrData", authnrData);
+        printHex("clientDataHash", clientDataHash);
+        var sigDataBuf = new ArrayBuffer(
+            authnrData.byteLength +
+            clientDataHash.byteLength
+        );
+        var sigData = new Uint8Array(sigDataBuf);
+
+        // copy authenticator data
+        var ad = new Uint8Array(authnrData);
+        for (let i = 0; i < authnrData.byteLength; i++) {
+            sigData[i] = ad[i];
+        }
+
+        // copy client data hash
+        var cd = new Uint8Array(clientDataHash);
+        var offset = authnrData.byteLength;
+        for (let i = 0; i < clientDataHash.byteLength; i++) {
+            sigData[offset + i] = cd[i];
+        }
+
+        printHex("sigData", sigData);
+
+        // sign over the combination of authenticator and client data,
+        // and return the Promise that will resolve to the result
+        return window.crypto.subtle.sign({
+                name: "RSASSA-PKCS1-v1_5",
+            },
+            keyPair.privateKey,
+            sigDataBuf
+        ).then((sig) => {
+            printHex("sig", sig);
+            return sig;
+        });
+    }
+
+    function _createPackedAttestation(rpIdHash, clientDataHash, credObj, opts) {
+        var authnrData;
+        console.log(credObj);
+
+        printHex("client data hash", clientDataHash);
+
+        // create authenticator data, create a signature, then form a packed attestation
+        var opts = {
+            attestation: true,
+            extensions: false
+        };
+        return createAuthenticatorData(rpIdHash, credObj, opts)
+            .then((ad) => {
+                authnrData = ad;
+                var p = createSignature(credObj.keyPair, authnrData, clientDataHash);
+                assert.instanceOf(p, Promise);
+                return p;
+            })
+            .then((sig) => {
+                var attestationObject = {
+                    fmt: "packed",
+                    authData: new Uint8Array(authnrData),
+                    attStmt: {
+                        alg: credObj.jwk.alg,
+                        sig: new Uint8Array(sig)
+                    }
+                };
+
+                console.log("doing CBOR encode of attestation:", attestationObject);
+                return CBOR.encode(attestationObject);
+            })
+            .then((cbor) => {
+                return {
+                    format: "packed",
+                    attestation: cbor,
+                    authenticatorData: authnrData
+                };
+            });
+    }
+
+    function _buf2hex(buffer) { // buffer is an ArrayBuffer
+        return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+    }
+
+    // borrowed from:
+    // https://github.com/niklasvh/base64-arraybuffer/blob/master/lib/base64-arraybuffer.js
+    // modified to base64url by Yuriy :)
+    /*
+     * base64-arraybuffer
+     * https://github.com/niklasvh/base64-arraybuffer
+     *
+     * Copyright (c) 2012 Niklas von Hertzen
+     * Licensed under the MIT license.
+     */
+    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+    // Use a lookup table to find the index.
+    var lookup = new Uint8Array(256);
+    for (var i = 0; i < chars.length; i++) {
+        lookup[chars.charCodeAt(i)] = i;
+    }
+
+    function b64decode(base64) {
+        var bufferLength = base64.length * 0.75,
+            len = base64.length,
+            i, p = 0,
+            encoded1, encoded2, encoded3, encoded4;
+
+        if (base64[base64.length - 1] === "=") {
+            bufferLength--;
+            if (base64[base64.length - 2] === "=") {
+                bufferLength--;
+            }
+        }
+
+        var arraybuffer = new ArrayBuffer(bufferLength),
+            bytes = new Uint8Array(arraybuffer);
+
+        for (i = 0; i < len; i += 4) {
+            encoded1 = lookup[base64.charCodeAt(i)];
+            encoded2 = lookup[base64.charCodeAt(i + 1)];
+            encoded3 = lookup[base64.charCodeAt(i + 2)];
+            encoded4 = lookup[base64.charCodeAt(i + 3)];
+
+            bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+            bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+            bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+        }
+
+        return arraybuffer;
+    }
     console.log("Loading soft authn...");
     navigator.authentication.addAuthenticator(new softAuthn());
 })();
 
-/**
- * Creates a random credential ID
- * @param  {Number} len The length of the credential ID to create (default: 32)
- * @return {ArrayBuffer}     Credential ID as an ArrayBuffer
- */
-function createCredentialId(len) {
-    // TODO: length should be a parameter
-
-    // default length is 32 bytes
-    len = len || 32;
-    var ret = new Uint8Array(len);
-    window.crypto.getRandomValues(ret);
-    return ret.buffer;
-}
-
-function credentialToCbor(alg, credObj) {
-    switch (alg) {
-        case "RS256":
-            return CBOR.encode({
-                alg: alg,
-                n: new Uint8Array(credObj.n),
-                e: new Uint8Array(credObj.e)
-            });
-        default:
-            throw new TypeError(`${alg} not supported in credentialToCbor()`);
-    }
-}
-
-/**
- * Creates a key pair and returns them along with all the information needed for a credential
- * @return {Object} A Promise that resolves to a credential object with n, e, jwk, and keyPair attributes
- */
-function createCredential(opts) {
-    // TODO:
-    // opts
-    //     idLen: length of credential (default: 32)
-    //     cryptoType: type of credential (default: ECDSA)
-    //     crytpoBits: number bits to be used for crypto keys (default: 256)
-    var keyPair;
-    var credId = createCredentialId();
-
-    // generate a credential key pair
-    return window.crypto.subtle.generateKey({
-            // TODO: should be options for crypto, bits, hash, etc.
-            name: "RSASSA-PKCS1-v1_5",
-            modulusLength: 2048, //can be 1024, 2048, or 4096
-            publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-            hash: {
-                name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
-            },
-        },
-        true, ["sign", "verify"]
-    ).then((keys) => { // export public key
-        keyPair = keys;
-        return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    }).then((jwkPk) => { // grab the right values from the JWK and return them
-        var ret = {
-            n: b64decode(jwkPk.n),
-            e: b64decode(jwkPk.e),
-            jwk: jwkPk,
-            keyPair: keyPair,
-            id: credId,
-            idLen: credId.byteLength,
-        };
-
-        // convert the JWK to CBOR
-        ret.cbor = credentialToCbor(jwkPk.alg, ret);
-        ret.cborLen = ret.cbor.byteLength;
-
-        return ret;
-    });
-}
-
-function createAttestationData(credObj, opts) {
-    opts = opts || {};
-    if (typeof credObj !== "object") {
-        throw new TypeError("createAttestationData: expected credObj to be object");
-    }
-
-    // TODO: real AAGUID
-    var myAaguid = [0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0, 0xF1, 0xD0];
-
-    // create a new dataview for the attestation
-    var attestDataBuf = new ArrayBuffer(
-        16 + // AAGUID
-        2 + // Cred ID Len
-        credObj.idLen + // Credential ID
-        credObj.cborLen // Credential in CBOR Format
-    );
-    var attestData = new DataView(attestDataBuf);
-    var offset = 0;
-
-    // append AAGUID
-    for (let i = 0; i < 16; i++) {
-        attestData.setUint8(i, myAaguid[i]);
-    }
-    offset += 16;
-
-    // set credential ID length
-    attestData.setUint16(offset, credObj.idLen);
-    offset += 2;
-
-    // append credential ID
-    var id = new Uint8Array(credObj.id);
-    for (let i = 0; i < credObj.idLen; i++) {
-        attestData.setUint8(i + offset, id[i]);
-    }
-    offset += credObj.idLen;
-
-    // append credential in CBOR format
-    var cbor = new Uint8Array(credObj.cbor);
-    for (let i = 0; i < credObj.cborLen; i++) {
-        attestData.setUint8(i + offset, cbor[i]);
-    }
-
-    return attestDataBuf;
-}
-
-function createAuthenticatorData(rpIdHash, credObj, opts) {
-    opts = opts || {};
-    var counter = 1; // TODO: manage counter
-
-    var attData;
-
-    return Promise.resolve(true) // get TUP -- TODO
-        .then((tup) => { // get attestation data, if required
-            if (tup !== true) {
-                throw new Error("TUP rejected");
-            }
-
-            if (opts.attestation) return createAttestationData(credObj);
-            else return new ArrayBuffer(0);
-        })
-        .then((ad) => { // get extension data, if required
-            attData = ad;
-            if (opts.extensions) throw new Error("extensions not supported in createAuthenticatorData");
-            else return new ArrayBuffer(0);
-        })
-        .then((extData) => { // create the authenticator data
-            var hasAd = (attData.byteLength > 0);
-            var hasEd = (extData.byteLength > 0);
-
-            // create authenticator data
-            var authnrDataBuf = new ArrayBuffer(
-                32 + // RPID Hash
-                1 + // Flags
-                4 + // Signature Counter
-                attData.byteLength + // attestation data
-                extData.byteLength // extensions
-            );
-            var authnrData = new DataView(authnrDataBuf);
-            var offset = 0;
-
-            // copy RPID
-            var rpid = new Uint8Array(rpIdHash);
-            for (let i = 0; i < 32; i++) {
-                authnrData.setUint8(i + offset, rpid[i]);
-            }
-            offset += 32;
-
-            // set flags
-            var flags = 0;
-            flags |= 0x01; // TUP flag
-            if (hasAd) flags |= 0x40; // AT flag
-            if (hasEd) flags |= 0x80; // ED flag
-            authnrData.setUint8(offset, flags);
-            offset++;
-
-            // set counter
-            authnrData.setUint32(offset, counter, false);
-            offset += 4;
-
-            if (hasAd) {
-                var ad = new Uint8Array(attData);
-                for (let i = 0; i < attData.byteLength; i++) {
-                    authnrData.setUint8(offset + i, ad[i]);
-                }
-                offset += attData.byteLength;
-            }
-
-            return authnrDataBuf;
-        });
-}
-
-function createSignature(keyPair, authnrData, clientDataHash) {
-    var sigDataBuf = new ArrayBuffer(
-        authnrData.byteLength +
-        clientDataHash.byteLength
-    );
-    var sigData = new Uint8Array(sigDataBuf);
-
-    // copy authenticator data
-    var ad = new Uint8Array(authnrData);
-    for (let i = 0; i < authnrData.byteLength; i++) {
-        sigData[i] = ad[i];
-    }
-
-    // copy client data hash
-    var cd = new Uint8Array(clientDataHash);
-    var offset = authnrData.byteLength;
-    for (let i = 0; i < clientDataHash.byteLength; i++) {
-        sigData[offset + i] = cd[i];
-    }
-
-    // sign over the combination of authenticator and client data,
-    // and return the Promise that will resolve to the result
-    return window.crypto.subtle.sign({
-            name: "RSASSA-PKCS1-v1_5",
-        },
-        keyPair.privateKey,
-        sigDataBuf
-    );
-}
-
-function createPackedAttestation(rpIdHash, clientDataHash, credObj, opts) {
-    var authnrData;
-    console.log(credObj);
-
-    // create authenticator data, create a signature, then form a packed attestation
-    var opts = {
-        attestation: true,
-        extensions: false
-    };
-    return createAuthenticatorData(rpIdHash, credObj, opts)
-        .then((ad) => {
-            authnrData = ad;
-            var p = createSignature(credObj.keyPair, authnrData, clientDataHash);
-            assert.instanceOf(p, Promise);
-            return p;
-        })
-        .then((sig) => {
-            var attestationObject = {
-                fmt: "packed",
-                authData: new Uint8Array (authnrData),
-                attStmt: {
-                    alg: credObj.jwk.alg,
-                    sig: new Uint8Array(sig)
-                }
-            };
-
-            console.log("doing CBOR encode of attestation:", attestationObject);
-            return CBOR.encode(attestationObject);
-        });
-}
-
-// stolen from:
-// https://github.com/niklasvh/base64-arraybuffer/blob/master/lib/base64-arraybuffer.js
-// modified to base64url by Yuriy :)
-/*
- * base64-arraybuffer
- * https://github.com/niklasvh/base64-arraybuffer
- *
- * Copyright (c) 2012 Niklas von Hertzen
- * Licensed under the MIT license.
- */
-var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-// Use a lookup table to find the index.
-var lookup = new Uint8Array(256);
-for (var i = 0; i < chars.length; i++) {
-    lookup[chars.charCodeAt(i)] = i;
-}
-
-function b64decode(base64) {
-    var bufferLength = base64.length * 0.75,
-        len = base64.length,
-        i, p = 0,
-        encoded1, encoded2, encoded3, encoded4;
-
-    if (base64[base64.length - 1] === "=") {
-        bufferLength--;
-        if (base64[base64.length - 2] === "=") {
-            bufferLength--;
-        }
-    }
-
-    var arraybuffer = new ArrayBuffer(bufferLength),
-        bytes = new Uint8Array(arraybuffer);
-
-    for (i = 0; i < len; i += 4) {
-        encoded1 = lookup[base64.charCodeAt(i)];
-        encoded2 = lookup[base64.charCodeAt(i + 1)];
-        encoded3 = lookup[base64.charCodeAt(i + 2)];
-        encoded4 = lookup[base64.charCodeAt(i + 3)];
-
-        bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
-        bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
-        bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
-    }
-
-    return arraybuffer;
-}
-
-// stolen from: https://github.com/paroga/cbor-js
+// borrowed from: https://github.com/paroga/cbor-js
 /*
  * The MIT License (MIT)
  *
@@ -1128,3 +1202,4 @@ function printHex(msg, buf) {
 
 /* JSHINT */
 /* globals CBOR */
+/* exported createCredential */

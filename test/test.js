@@ -1,120 +1,86 @@
 var assert = chai.assert;
+var h = fido2Helpers;
 
-// TODO: remove
-function hexToArrayBuffer(hex) {
-	if (typeof hex !== 'string') {
-		throw new TypeError('Expected input to be a string');
-	}
-
-	if ((hex.length % 2) !== 0) {
-		throw new RangeError('Expected string to be an even number of characters');
-	}
-
-	var view = new Uint8Array(hex.length / 2);
-
-	for (var i = 0; i < hex.length; i += 2) {
-		view[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-	}
-
-	return view.buffer;
-}
-var rpIdHash = hexToArrayBuffer("49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d9763"); // localhost
-var clientDataHash = hexToArrayBuffer("42d3fc09b8448e7c3ef0e942d5410abe7b6122b095b54035f90aca467814e972");
-var userAccountInformation = {
-	rpDisplayName: "PayPal",
-	displayName: "John P. Smith",
-	name: "johnpsmith@gmail.com",
-	id: "1098237235409872",
-	imageUri: "https://pics.paypal.com/00/p/aBjjjpqPb.png"
-};
+var rpIdHash = h.hexToArrayBuffer("49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d9763"); // localhost
 
 
 /***********************
  * Helpers
  ************************/
-var userAccountInformation = {
-	rpDisplayName: "PayPal",
-	displayName: "John P. Smith",
-	name: "johnpsmith@gmail.com",
-	id: "1098237235409872",
-	imageUri: "https://pics.paypal.com/00/p/aBjjjpqPb.png"
-};
-var cryptoParams = [{
-	type: "ScopedCred",
-	algorithm: "RSASSA-PKCS1-v1_5",
-}];
-var expectedCryptoParams = {
-	type: "ScopedCred",
-	algorithm: "RSASSA-PKCS1-v1_5",
-};
-var challenge = "Y2xpbWIgYSBtb3VudGFpbg";
-// var timeoutSeconds = 300; // 5 minutes
-var timeoutSeconds = 1;
-var blacklist = []; // No blacklist
-var extensions = {
-	"fido.location": true // Include location information in attestation
-};
-var calculatedClientData = {
-	challenge: "Y2xpbWIgYSBtb3VudGFpbg",
-	facet: "http://localhost:8000",
-	hashAlg: "S256"
-};
-var expectedClientDataHash = new ArrayBuffer([227, 176, 196, 66, 152, 252, 28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100, 155, 147, 76, 164, 149, 153, 27, 120, 82, 184, 85]);
-var validMakeCredential = {
-	credential: {
-		type: 'ScopedCred',
-		id: '8DD7414D-EE43-474C-A05D-FDDB828B663B'
-	},
-	publicKey: {
-		kty: 'RSA',
-		alg: 'RS256',
-		ext: false,
-		n: 'lMR4XoxRiY5kptgHhh1XLKnezHC2EWPIImlHS-iUMSKVH32WWUKfEoY5Al_exPtcVuUfcNGtMoysAN65PZzcMKXaQ-2a8AebKwe8qQGBc4yY0EkP99Sgb80rAf1S7s-JRNVtNTRb4qrXVCMxZHu3ubjsdeybMI-fFKzYg9IV6DPotJyx1OpNSdibSwWKDTc5YzGfoOG3vA-1ae9oFOh5ZolhHnr5UkodFKUaxOOHfPrAB0MVT5Y5Stvo_Z_1qFDOLyOWdhxxzl2at3K9tyQC8kgJCNKYsq7-EFzvA9Q90PC6SxGATQoICKn2vCNMBqVHLlTydBmP7-8MoMxefM277w',
-		e: 'AQAB'
-	},
-	attestation: null
-};
+
+
+// var challenge = "Y2xpbWIgYSBtb3VudGFpbg";
+// // var timeoutSeconds = 300; // 5 minutes
+// var timeoutSeconds = 1;
+// var blacklist = []; // No blacklist
+// var extensions = {
+// 	"fido.location": true // Include location information in attestation
+// };
+// var calculatedClientData = {
+// 	challenge: "Y2xpbWIgYSBtb3VudGFpbg",
+// 	facet: "http://localhost:8000",
+// 	hashAlg: "S256"
+// };
+// var expectedClientDataHash = new ArrayBuffer([227, 176, 196, 66, 152, 252, 28, 20, 154, 251, 244, 200, 153, 111, 185, 36, 39, 174, 65, 228, 100, 155, 147, 76, 164, 149, 153, 27, 120, 82, 184, 85]);
+// var validMakeCredential = {
+// 	credential: {
+// 		type: 'ScopedCred',
+// 		id: '8DD7414D-EE43-474C-A05D-FDDB828B663B'
+// 	},
+// 	publicKey: {
+// 		kty: 'RSA',
+// 		alg: 'RS256',
+// 		ext: false,
+// 		n: 'lMR4XoxRiY5kptgHhh1XLKnezHC2EWPIImlHS-iUMSKVH32WWUKfEoY5Al_exPtcVuUfcNGtMoysAN65PZzcMKXaQ-2a8AebKwe8qQGBc4yY0EkP99Sgb80rAf1S7s-JRNVtNTRb4qrXVCMxZHu3ubjsdeybMI-fFKzYg9IV6DPotJyx1OpNSdibSwWKDTc5YzGfoOG3vA-1ae9oFOh5ZolhHnr5UkodFKUaxOOHfPrAB0MVT5Y5Stvo_Z_1qFDOLyOWdhxxzl2at3K9tyQC8kgJCNKYsq7-EFzvA9Q90PC6SxGATQoICKn2vCNMBqVHLlTydBmP7-8MoMxefM277w',
+// 		e: 'AQAB'
+// 	},
+// 	attestation: null
+// };
 
 describe("Prerequisites (if these fail, so will everything else)", function() {
 	it("window.webauthn exists", function() {
-		assert.isDefined(window.webauthn, "window.webauthn should be defined");
+		assert.isDefined(window.navigator.authentication, "window.navigator.authentication should be defined");
 	});
 
 	it("makeCredential exists", function() {
-		assert.isDefined(window.webauthn.makeCredential, "makeCredential should exist on WebAuthn object");
-		assert.isFunction(window.webauthn.makeCredential, "makeCredential should be a function");
+		assert.isDefined(window.navigator.authentication.makeCredential, "makeCredential should exist on WebAuthn object");
+		assert.isFunction(window.navigator.authentication.makeCredential, "makeCredential should be a function");
 	});
 
 	it("getAssertion exists", function() {
-		assert.isDefined(window.webauthn.getAssertion, "getAssertion should exist on WebAuthn object");
-		assert.isFunction(window.webauthn.getAssertion, "getAssertion should be a function");
+		assert.isDefined(window.navigator.authentication.getAssertion, "getAssertion should exist on WebAuthn object");
+		assert.isFunction(window.navigator.authentication.getAssertion, "getAssertion should be a function");
 	});
 
 	it("addAuthenticator exists", function() {
-		assert.isDefined(window.webauthn.addAuthenticator, "addAuthenticator should exist on WebAuthn object");
-		assert.isFunction(window.webauthn.addAuthenticator, "addAuthenticator should be a function");
+		assert.isDefined(window.navigator.authentication.addAuthenticator, "addAuthenticator should exist on WebAuthn object");
+		assert.isFunction(window.navigator.authentication.addAuthenticator, "addAuthenticator should be a function");
 	});
 
 	it("listAuthenticators exists and has length greater than 0", function() {
-		assert.isDefined(window.webauthn.listAuthenticators, "addAuthenticator should exist on WebAuthn object");
-		assert.isFunction(window.webauthn.listAuthenticators, "addAuthenticator should be a function");
-		var authnList = window.webauthn.listAuthenticators();
+		assert.isDefined(window.navigator.authentication.listAuthenticators, "addAuthenticator should exist on WebAuthn object");
+		assert.isFunction(window.navigator.authentication.listAuthenticators, "addAuthenticator should be a function");
+		var authnList = window.navigator.authentication.listAuthenticators();
 		console.log("Authn List:", authnList);
 		assert(authnList.length > 0);
 	});
 
+	it("proxies addAuthenticator", function() {
+		assert.instanceOf(authnrUnderTest, navigator.authentication.fidoAuthenticator);
+	});
 });
 
-describe("Basic tests", function() {
+// these tests require the polyfill to be loaded, so they are being deprecated
+describe.skip("Basic tests", function() {
+	this.slow(1000);
 	it("does makeCredential", function() {
-		var webAuthnAPI = window.webauthn;
+		var webAuthnAPI = window.navigator.authentication;
 
 		// auth.authenticatorMakeCredential = authenticatorMakeCredential;
 		// var spy = sinon.spy(auth, "authenticatorMakeCredential");
 		// webAuthnAPI.addAuthenticator(auth);
 
-		return webAuthnAPI.makeCredential(userAccountInformation, cryptoParams, challenge,
-				timeoutSeconds, blacklist, extensions)
+		return webAuthnAPI.makeCredential(h.userAccountInformation, h.cryptoParams, h.challenge, h.opts)
 			.then(function(ret) {
 				// sinon.assert.calledOnce(spy);
 				// assert.deepEqual(ret, ["beer"], "authenticatorMakeCredential should give me ['beer']");
@@ -124,15 +90,14 @@ describe("Basic tests", function() {
 			});
 	});
 
-	it.only("does getAssertion", function() {
-		var webAuthnAPI = window.webauthn;
+	it("does getAssertion", function() {
+		var webAuthnAPI = window.navigator.authentication;
 
 		// auth.authenticatorMakeCredential = authenticatorMakeCredential;
 		// var spy = sinon.spy(auth, "authenticatorMakeCredential");
 		// webAuthnAPI.addAuthenticator(auth);
 
-		return webAuthnAPI.makeCredential(userAccountInformation, cryptoParams, challenge,
-				timeoutSeconds, blacklist, extensions)
+		return webAuthnAPI.makeCredential(h.userAccountInformation, h.cryptoParams, h.challenge, h.opts)
 			.then(function(ret) {
 				// sinon.assert.calledOnce(spy);
 				// assert.deepEqual(ret, ["beer"], "authenticatorMakeCredential should give me ['beer']");
@@ -140,20 +105,60 @@ describe("Basic tests", function() {
 				assert.isDefined(ret.attestation, "Should return attestation");
 				assert.isDefined(ret.publicKey, "Should return publicKey");
 				return webAuthnAPI.getAssertion();
+				// })
+				// .then((assertion) => {
+				// 	assert.isObject (assertion);
+				// 	assert.isObject (assertion.credential);
+				// 	assert.instanceOf (assertion.clientData, ArrayBuffer);
+				// 	assert.instanceOf (assertion.authenticatorData, ArrayBuffer);
+				// 	assert.instanceOf (assertion.signature, ArrayBuffer);
+			});
+	});
+	it("can make and then assert a credential");
+	it("can make two credentials");
+	it("can assert the same credential multiple times");
+});
+
+describe.only("authenticatorMakeCredential", function() {
+	it("throws when called with no arguments", function(done) {
+		authnrUnderTest.authenticatorMakeCredential()
+			.then(() => {
+				assert.fail("authenticatorMakeCredential with no args should throw TypeError");
 			})
-			.then(function() {
-				// done();
-				// assert (false, "Should not pass");
-				return true;
-			})
-			.catch(function(ret) {
-				assert(false, "Should not fail");
-				// done();
+			.catch((err) => {
+				assert.instanceOf(err, TypeError);
+				done();
+			});
+	});
+
+	it("returns a credential", function() {
+		console.log ("h.clientDataHash", h.clientDataHash);
+		return authnrUnderTest.authenticatorMakeCredential(h.rpIdHash, h.userAccountInformation, h.clientDataHash, h.scopedCredentialType)
+			.then((scopedCredInfo) => {
+				console.log (scopedCredInfo);
+				assert.isObject (scopedCredInfo, scopedCredInfo);
+				assert.isObject (scopedCredInfo.credential);
+				assert.isString (scopedCredInfo.credential.type);
+				assert.instanceOf (scopedCredInfo.credential.id, ArrayBuffer);
+				assert.isObject (scopedCredInfo.attestation);
+				assert.isString (scopedCredInfo.attestation.format);
+				// assert.instanceOf (scopedCredInfo.attestation.clientData, ArrayBuffer);
+				assert.instanceOf (scopedCredInfo.attestation.authenticatorData, ArrayBuffer);
+				assert.instanceOf (scopedCredInfo.attestation.attestation, ArrayBuffer);
+				console.log ("DONE!!?!");
 			});
 	});
 });
 
-describe.only("self attestation", function() {
+describe("authenticatorGetAssertion", function() {
+
+});
+
+describe("authenticatorCancel", function() {
+
+});
+
+describe.skip("self attestation", function() {
 	function verifyCbor(cbor, offset) {
 		assert.strictEqual(cbor[offset + 0], 0xA3); // map, length 3
 		assert.strictEqual(cbor[offset + 1], 0x63); // key, length 3
@@ -292,7 +297,7 @@ describe.only("self attestation", function() {
 				return p;
 			})
 			.then((authnrData) => {
-				var p = createSignature(credObj.keyPair, authnrData, clientDataHash);
+				var p = createSignature(credObj.keyPair, authnrData, h.clientDataHash);
 				assert.instanceOf(p, Promise);
 				return p;
 			});
@@ -301,18 +306,18 @@ describe.only("self attestation", function() {
 	it("creates a packed attestation", function() {
 		return createCredential()
 			.then((credObj) => {
-				var p = createPackedAttestation(rpIdHash, clientDataHash, credObj);
-				assert.instanceOf (p, Promise);
+				var p = createPackedAttestation(rpIdHash, h.clientDataHash, credObj);
+				assert.instanceOf(p, Promise);
 				return p;
 			})
 			.then((packedAttestation) => {
-				console.log (packedAttestation);
-				printHex ("packed attestation", packedAttestation);
+				console.log(packedAttestation);
+				printHex("packed attestation", packedAttestation);
 				return packedAttestation;
 			});
 	});
 	it("creates a packed self-attestation statement");
 });
 
-// describe("CBOR", function() {
-// });
+/* JSHINT */
+/* globals authnrUnderTest */
