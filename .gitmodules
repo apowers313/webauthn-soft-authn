@@ -1,3 +1,6 @@
 [submodule "test/fido2-helpers"]
 	path = test/fido2-helpers
 	url = https://github.com/apowers313/fido2-helpers.git
+[submodule "test/webauthn-polyfill"]
+	path = test/webauthn-polyfill
+	url = https://github.com/apowers313/webauthn-polyfill.git
