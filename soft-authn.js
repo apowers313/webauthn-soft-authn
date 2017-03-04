@@ -1,3 +1,14 @@
+// SECURITY TODO: make sure this meets the requirements for secure context
+// for browsers that don't support secure context
+if (window.isSecureContext === undefined && location.origin.match(/:\/\/localhost|https:\/\//g)) {
+    window.isSecureContext = true;
+}
+
+// for safari's version of webCrypto
+if (window.crypto && !window.crypto.subtle && window.crypto.webkitSubtle) {
+    window.crypto.subtle = window.crypto.webkitSubtle;
+}
+
 // IIFE for clean namespace
 (function() {
 
@@ -12,6 +23,9 @@
         return;
     }
 
+    /**
+     * The main class for the soft authenticator
+     */
     class softAuthn extends navigator.authentication.fidoAuthenticator {
         constructor(opt) {
             super(opt);
@@ -104,29 +118,6 @@
                     .then((a) => {
                         // save attestation
                         webAuthnAttestation = a;
-                        //     // create assymetric key pair and export public key
-                        //     return window.crypto.subtle.generateKey({
-                        //             // TODO: should be options for crypto, bits, hash, etc.
-                        //             name: this.preferredCrypto,
-                        //             modulusLength: this.cryptoBits, //can be 1024, 2048, or 4096
-                        //             publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-                        //             hash: {
-                        //                 name: "SHA-256" //can be "SHA-1", "SHA-256", "SHA-384", or "SHA-512"
-                        //             },
-                        //         },
-                        //         false, ["sign", "verify"]
-                        //     );
-                        // })
-                        // .then((keys) => {
-                        //     // export public key
-                        //     keyPair = keys;
-                        //     return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
-                        // })
-                        // .then((jwkPk) => {
-                        //     // dbInit
-                        //     console.log("JWK Pk:", jwkPk);
-                        //     publicKey = jwkPk;
-
                         return _dbInit.call(this);
                     })
                     .then(() => {
@@ -148,7 +139,7 @@
             });
         }
 
-        authenticatorGetAssertion(rpId, assertionChallenge, clientDataHash, whitelist, extensions) {
+        authenticatorGetAssertion(rpIdHash, clientDataHash, whitelist, extensions) {
             return new Promise((resolve, reject) => {
                 console.log("authenticatorGetAssertion");
 
@@ -156,11 +147,6 @@
                 if (typeof rpId === "string") {
                     throw new TypeError("authenticatorGetAssertion expected rpId to be string");
                 }
-
-                if (!(assertionChallenge instanceof ArrayBuffer)) {
-                    throw new TypeError("authenticatorGetAssertion expected assertionChallenge to be ArrayBuffer");
-                }
-                console.log("assertionChallenge", assertionChallenge);
 
                 if (!(clientDataHash instanceof ArrayBuffer)) {
                     throw new TypeError("authenticatorGetAssertion expected clientDataHash to be ArrayBuffer");
@@ -170,61 +156,35 @@
                 // TODO: process extensions
 
                 // lookup credentials by RP ID
-                console.log("RP ID:", rpId);
-                var selectedCred, authenticatorData;
+                var selectedCred, authnrData;
                 return _dbInit.call(this)
                     .then((db) => {
-                        return _dbCredLookup(rpId);
+                        return _dbCredLookup(rpIdHash);
                     })
-                    .then((cred) => { // prompt for user permission
+                    .then((co) => {
+                        // prompt for user permission
                         // TODO: filter found credentials by whitelist
                         // TODO: _userConfirmation should allow user to pick from an array of accounts
-                        selectedCred = cred;
+                        selectedCred = co;
                         console.log("Using credential:", selectedCred);
-                        return _userConfirmation.call(this, "Would you like to login to this account?", cred.rpName || "SERVICE MISSING", cred.userName || "USER MISSING");
+                        return _userConfirmation.call(this, "Would you like to login to this account?", selectedCred.rpName, selectedCred.userName);
                     })
-                    .then((confirm) => { // create assertion
-                        console.log("Creating assertion");
-                        var SIG = {
-                            TUP_FLAG: 0x01
-                        };
-                        var baseSignature = new DataView(new ArrayBuffer(5));
-                        // set TUP flag in authenticator data
-                        baseSignature.setUint8(0, SIG.TUP_FLAG);
-                        // bump counter
-                        baseSignature.setUint32(1, selectedCred.counter + 1);
-
-                        // TODO: store counter
-                        // TODO: create a single buffer with authenticatorData, clientDataHash and extensions
-
-                        authenticatorData = baseSignature;
-                        return baseSignature;
+                    .then((confirm) => {
+                        return _createAuthenticatorData(rpIdHash, selectedCred);
                     })
-                    .then((authenticatorData) => { // sign assertion
-                        console.log("Signing assertion");
-
-                        var bufSz = authenticatorData.byteLength + clientDataHash.byteLength;
-                        console.log("Creating buffer sized:", bufSz);
-                        var sigBuffer = new Uint8Array(bufSz);
-                        sigBuffer.set(new Uint8Array(authenticatorData), 0);
-                        sigBuffer.set(new Uint8Array(clientDataHash), authenticatorData.byteLength);
-                        sigBuffer = sigBuffer.buffer;
-
-                        return window.crypto.subtle.sign({
-                                name: this.preferredCrypto,
-                            },
-                            selectedCred.keyPair.privateKey, //from stored credential
-                            sigBuffer //ArrayBuffer of data you want to sign
-                        );
+                    .then((ad) => {
+                        authnrData = ad;
+                        return _createSignature(selectedCred.keyPair, authnrData, clientDataHash);
                     })
-                    .then((signature) => { // resolve with credential, authenticatorData, signature
+                    .then((signature) => {
+                        // resolve with credential, authenticatorData, signature
                         console.log("Signature length:", signature.byteLength);
                         var ret = {
                             credential: {
+                                type: "ScopedCred",
                                 id: selectedCred.id,
-                                type: "ScopedCred" // TODO: need to be more intelligent about this?
                             },
-                            authenticatorData: authenticatorData.buffer,
+                            authenticatorData: authnrData,
                             signature: signature
                         };
                         console.log("All done", ret);
@@ -237,6 +197,11 @@
             });
         }
 
+        /**
+         * Cancels any pending actions
+         * @return {Promise} Promise that resolves to an Error with the message "Not Implemented"
+         * @todo Not Implemented
+         */
         authenticatorCancel() {
             // not sure how to handle this... maybe throw? set flag and check above?
             return Promise.reject(new Error("Not Implemented"));
@@ -285,7 +250,7 @@
                 var store = db.createObjectStore("creds", {
                     keyPath: "id"
                 });
-                var idIdx = store.createIndex("by_rpIdHash", "rpIdHash", {
+                var idIdx = store.createIndex("by_rpId", "rpId", {
                     unique: false
                 });
             };
@@ -306,7 +271,7 @@
     //       but databases are stored by origin ("https://subdomain.example.com:443")
     //       so I'm not sure that this is going to work as expected if there
     //       are multiple ports or subdomains that the credentials are supposed to work with
-    function _dbCredLookup(rpId) {
+    function _dbCredLookup(rpIdHash) {
         return new Promise(function(resolve, reject) {
             var db = _credDb;
             var tx = db.transaction("creds", "readonly");
@@ -315,12 +280,13 @@
             var index = store.index("by_rpId", "rpId", {
                 unique: false
             });
-            console.log("rpId index unique:", index.unique);
+            var rpId = _buf2hex(rpIdHash);
             var request = index.get(rpId);
             request.onsuccess = function() {
                 var matching = request.result;
                 if (matching !== undefined) {
                     console.log("Found match:", matching);
+                    matching.id = matching.idBuf; // convert credential.id back to an ArrayBuffer
                     return resolve(matching);
                 } else {
                     console.log("No match found.");
@@ -344,16 +310,18 @@
                 accountName: account.name,
                 accountId: account.id,
                 imageURL: account.imageURL,
+                rpId: _buf2hex(rpIdHash),
                 rpIdHash: rpIdHash,
                 id: _buf2hex(credObj.id),
                 idBuf: credObj.id,
                 credCbor: credObj.cbor,
                 credJwk: credObj.jwk,
+                // TODO: Safari can't save keyPairs
                 keyPair: credObj.keyPair,
                 counter: 0
             };
-            console.log("New Credential ID is:", _buf2hex(credObj.id));
-            console.log("Saving New Credential:", newCred);
+            // console.log("New Credential ID is:", _buf2hex(credObj.id));
+            // console.log("Saving New Credential:", newCred);
             store.put(newCred);
 
             tx.oncomplete = function() {
@@ -366,20 +334,6 @@
                 return reject(new Error("Couldn't create credential"));
             };
         });
-    }
-
-    function _generateCredId() {
-        var newId = window.crypto.getRandomValues(new Uint8Array(16));
-        var newHexId = "";
-        for (let byte of newId) {
-            newHexId += byte.toString(16);
-        }
-        console.log("New Credential ID:", newHexId);
-        return newHexId;
-    }
-
-    function _generateAttestation() {
-        return null;
     }
 
     function _userConfirmation(msg, rpDisplayName, displayName) {
@@ -443,6 +397,20 @@
     }
 
     /**
+     * Fixes up Safari's JWK export, which is an ArrayBuffer
+     * @param  {ArrayBuffer} jwk An ArrayBuffer containing a UTF-8 JSON Web Key (JWK)
+     * @return {Object}     The Object represention of the JWK
+     */
+    function jwkAb2Obj(jwk) {
+        if (!(jwk instanceof ArrayBuffer)) return jwk;
+        // printHex ("jwk", jwkPk);
+        function ab2str(buf) {
+            return String.fromCharCode.apply(null, new Uint8Array(buf));
+        }
+        return JSON.parse(ab2str(jwk));
+    }
+
+    /**
      * Creates a key pair and returns them along with all the information needed for a credential
      * @return {Object} A Promise that resolves to a credential object with n, e, jwk, and keyPair attributes
      * @private
@@ -467,10 +435,13 @@
                 },
             },
             false, ["sign", "verify"]
-        ).then((keys) => { // export public key
+        ).then((keys) => {
+            // export public key
             keyPair = keys;
             return window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
         }).then((jwkPk) => { // grab the right values from the JWK and return them
+            jwkPk = jwkAb2Obj(jwkPk);
+            console.log(jwkPk);
             var ret = {
                 n: b64decode(jwkPk.n),
                 e: b64decode(jwkPk.e),
@@ -481,6 +452,7 @@
             };
 
             // convert the JWK to CBOR
+            console.log("x");
             ret.cbor = credentialToCbor(jwkPk.alg, ret);
             ret.cborLen = ret.cbor.byteLength;
 
@@ -535,7 +507,7 @@
         return attestDataBuf;
     }
 
-    function createAuthenticatorData(rpIdHash, credObj, opts) {
+    function _createAuthenticatorData(rpIdHash, credObj, opts) {
         opts = opts || {};
         var counter = 1; // TODO: manage counter
 
@@ -601,10 +573,16 @@
             });
     }
 
-    function createSignature(keyPair, authnrData, clientDataHash) {
-        console.log("Signing");
-        printHex("authnrData", authnrData);
-        printHex("clientDataHash", clientDataHash);
+    function _createSignature(keyPair, authnrData, clientDataHash) {
+        // for future reference...
+        // window.RSASSA = {
+        //     name: "RSASSA-PKCS1-v1_5",
+        //     modulusLength: 2048,
+        //     publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+        //     hash: {name: "SHA-256"},
+        // }
+        // printHex("authnrData", authnrData);
+        // printHex("clientDataHash", clientDataHash);
         var sigDataBuf = new ArrayBuffer(
             authnrData.byteLength +
             clientDataHash.byteLength
@@ -624,17 +602,20 @@
             sigData[offset + i] = cd[i];
         }
 
-        printHex("sigData", sigData);
+        // printHex("sigData", sigData);
 
         // sign over the combination of authenticator and client data,
         // and return the Promise that will resolve to the result
         return window.crypto.subtle.sign({
                 name: "RSASSA-PKCS1-v1_5",
+                hash: {
+                    name: "SHA-256"// Safari requires naming the hash...
+                }
             },
             keyPair.privateKey,
             sigDataBuf
         ).then((sig) => {
-            printHex("sig", sig);
+            // printHex("sig", sig);
             return sig;
         });
     }
@@ -650,10 +631,10 @@
             attestation: true,
             extensions: false
         };
-        return createAuthenticatorData(rpIdHash, credObj, opts)
+        return _createAuthenticatorData(rpIdHash, credObj, opts)
             .then((ad) => {
                 authnrData = ad;
-                var p = createSignature(credObj.keyPair, authnrData, clientDataHash);
+                var p = _createSignature(credObj.keyPair, authnrData, clientDataHash);
                 assert.instanceOf(p, Promise);
                 return p;
             })
