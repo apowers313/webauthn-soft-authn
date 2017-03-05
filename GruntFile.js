@@ -46,7 +46,7 @@ module.exports = function(grunt) {
             all: {
                 options: {
                     urls: [
-                        'http://127.0.0.1:9999/test/test.html'
+                        'http://localhost:9999/test/test.html'
                     ],
                     browsers: browsers,
                     build: process.env.TRAVIS_JOB_ID,
