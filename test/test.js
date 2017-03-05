@@ -1,9 +1,6 @@
 var assert = chai.assert;
 var h = fido2Helpers;
 
-var rpIdHash = h.hexToArrayBuffer("49960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d9763"); // localhost
-
-
 /***********************
  * Helpers
  ************************/
@@ -53,6 +50,10 @@ function verifyRsaCred(cbor, offset) {
 	if (cbor instanceof ArrayBuffer) {
 		cbor = new Uint8Array(cbor);
 	}
+	// XXX: yes, I realize that I could just compare against buffers
+	// I'm doing this more verbose format to assist in identifying which
+	// byte is wrong, because I'm pretty sure these formats are going
+	// to be changing and I'm going to be debugging these later
 	assert.strictEqual(cbor[offset + 0], 0xA3); // map, length 3
 	assert.strictEqual(cbor[offset + 1], 0x63); // key, length 3
 	assert.strictEqual(cbor[offset + 2], 0x61); // "a"
@@ -352,14 +353,13 @@ describe("authenticatorCancel", function() {
 });
 
 // TODO: this really doesn't belong here...
-describe.skip("integration testing", function() {
+describe("integration testing", function() {
 	it("makeCredential returns a valid credential", function() {
 		var webAuthnAPI = window.navigator.authentication;
 
 		return webAuthnAPI.makeCredential(h.userAccountInformation, h.cryptoParams, h.challenge)
 			.then((scopedCredInfo) => {
-				console.log ("makeCredential scopedCredInfo", scopedCredInfo);
-				assert.isObject(scopedCredInfo, scopedCredInfo);
+				assert.isObject(scopedCredInfo);
 				assert.isObject(scopedCredInfo.credential);
 				assert.strictEqual(scopedCredInfo.credential.type, "ScopedCred");
 				assert.instanceOf(scopedCredInfo.credential.id, ArrayBuffer);
@@ -368,9 +368,37 @@ describe.skip("integration testing", function() {
 				// assert.instanceOf (scopedCredInfo.attestation.clientData, ArrayBuffer);
 				assert.instanceOf(scopedCredInfo.attestation.authenticatorData, ArrayBuffer);
 				assert.instanceOf(scopedCredInfo.attestation.attestation, ArrayBuffer);
+				assert.instanceOf(scopedCredInfo.clientData, ArrayBuffer);
 				verifyAuthenticatorData (scopedCredInfo.attestation.authenticatorData, 0, h.rpIdHash, true, false);
 				verifyPackedAttestationCbor (scopedCredInfo.attestation.attestation, 0);
+				assert(h.arrayBufferEquals(scopedCredInfo.clientData, h.clientDataJsonBuf, "clientData ArrayBuffer doesn't match"));
+				// console.log ("FINAL");
+				// console.log ("scopedCredInfo", scopedCredInfo);
+				// printHex ("scopedCredInfo.credential.id", scopedCredInfo.credential.id);
+				// printHex ("scopedCredInfo.attestation.authenticatorData", scopedCredInfo.attestation.authenticatorData);
 			});
+	});
+
+	it.only("getAssertion returns a valid assertion", function() {
+		var webAuthnAPI = window.navigator.authentication;
+
+		return webAuthnAPI.makeCredential(h.userAccountInformation, h.cryptoParams, h.challenge)
+		.then(() => {
+			return webAuthnAPI.getAssertion(h.challenge);
+		})
+		.then((webAuthnAssertion) => {
+			console.log("webAuthnAssertion", webAuthnAssertion);
+			assert.isObject (webAuthnAssertion);
+			assert.isObject (webAuthnAssertion.credential);
+			assert.instanceOf (webAuthnAssertion.credential.id, ArrayBuffer);
+			assert.strictEqual (webAuthnAssertion.credential.type, "ScopedCred");
+			assert.instanceOf (webAuthnAssertion.clientData, ArrayBuffer);
+			assert.instanceOf (webAuthnAssertion.authenticatorData, ArrayBuffer);
+			assert.instanceOf (webAuthnAssertion.signature, ArrayBuffer);
+			verifyAuthenticatorData (webAuthnAssertion.authenticatorData, 0, h.rpIdHash, false, false);
+			assert(h.arrayBufferEquals(webAuthnAssertion.clientData, h.clientDataJsonBuf, "clientData ArrayBuffer doesn't match"));
+			console.log ("FINAL");
+		});
 	});
 });
 
