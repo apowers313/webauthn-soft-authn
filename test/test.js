@@ -379,7 +379,7 @@ describe("integration testing", function() {
 			});
 	});
 
-	it.only("getAssertion returns a valid assertion", function() {
+	it("getAssertion returns a valid assertion", function() {
 		var webAuthnAPI = window.navigator.authentication;
 
 		return webAuthnAPI.makeCredential(h.userAccountInformation, h.cryptoParams, h.challenge)
